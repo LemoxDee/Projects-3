@@ -1,0 +1,148 @@
+// Game "Monster Battle" in raylib (C with raymath)
+#include "raylib.h"
+#include "raymath.h"
+#include <stdlib.h>
+#include <time.h>
+
+typedef enum { MENU, GAME, PAUSE, GAME_OVER } GameState;
+
+typedef struct {
+    Vector2 position;
+    int health;
+    int defence;
+    int energy;
+    float speed;
+    float critChance;
+    float attackCooldown;
+    Texture2D texture;
+    Rectangle hitbox;
+} Player;
+
+typedef struct {
+    Vector2 position;
+    int health;
+    float speed;
+    bool isAlive;
+    Texture2D texture;
+    Rectangle hitbox;
+    float damageCooldown;
+} Monster;
+
+typedef struct {
+    Vector2 position;
+    bool active;
+    Texture2D texture;
+    int bonusType; // 0 - health, 1 - speed
+} Bonus;
+
+int main() {
+    const int screenWidth = 800;
+    const int screenHeight = 600;
+    InitWindow(screenWidth, screenHeight, "Monster Battle");
+    InitAudioDevice();
+    SetTargetFPS(60);
+
+    Texture2D playerTexture = LoadTexture("resources/player.png");
+    Texture2D monsterTexture = LoadTexture("resources/monster.png");
+    Texture2D bonusTexture = LoadTexture("resources/bonus.png");
+    Texture2D background = LoadTexture("resources/background.png");
+
+    Sound attackSound = LoadSound("resources/attack.wav");
+    Sound bonusSound = LoadSound("resources/bonus.wav");
+    Music backgroundMusic = LoadMusicStream("resources/music.ogg");
+
+    Player player = {{100, 300}, 100, 10, 50, 200.0f, 0.1f, 0.0f, playerTexture, {100, 300, playerTexture.width, playerTexture.height}};
+    Monster monster = {{600, 300}, 100, 100.0f, true, monsterTexture, {600, 300, monsterTexture.width, monsterTexture.height}, 0.0f};
+    Bonus bonus = {{400, 200}, true, bonusTexture, 0};
+
+    GameState currentState = MENU;
+    PlayMusicStream(backgroundMusic);
+
+    while (!WindowShouldClose()) {
+        float deltaTime = GetFrameTime();
+        UpdateMusicStream(backgroundMusic);
+
+        if (currentState == GAME) {
+            if (IsKeyDown(KEY_RIGHT)) player.position.x += player.speed * deltaTime;
+            if (IsKeyDown(KEY_LEFT)) player.position.x -= player.speed * deltaTime;
+            if (IsKeyDown(KEY_UP)) player.position.y -= player.speed * deltaTime;
+            if (IsKeyDown(KEY_DOWN)) player.position.y += player.speed * deltaTime;
+
+            player.attackCooldown -= deltaTime;
+            monster.damageCooldown -= deltaTime;
+
+            player.hitbox.x = player.position.x;
+            player.hitbox.y = player.position.y;
+            monster.hitbox.x = monster.position.x;
+            monster.hitbox.y = monster.position.y;
+
+            if (IsKeyPressed(KEY_SPACE) && player.attackCooldown <= 0.0f && monster.isAlive) {
+                if (CheckCollisionRecs(player.hitbox, monster.hitbox)) {
+                    monster.health -= 20;
+                    PlaySound(attackSound);
+                    if (monster.health <= 0) monster.isAlive = false;
+                }
+                player.attackCooldown = 0.5f;
+            }
+
+            if (monster.isAlive) {
+                Vector2 direction = Vector2Subtract(player.position, monster.position);
+                float length = Vector2Length(direction);
+                if (length > 0) direction = Vector2Scale(direction, monster.speed * deltaTime / length);
+                monster.position = Vector2Add(monster.position, direction);
+
+                monster.hitbox.x = monster.position.x;
+                monster.hitbox.y = monster.position.y;
+
+                if (CheckCollisionRecs(player.hitbox, monster.hitbox) && monster.damageCooldown <= 0.0f) {
+                    player.health -= 10;
+                    monster.damageCooldown = 1.0f;
+                }
+            }
+
+            if (bonus.active) {
+                Rectangle bonusHitbox = {bonus.position.x, bonus.position.y, bonus.texture.width, bonus.texture.height};
+                if (CheckCollisionRecs(player.hitbox, bonusHitbox)) {
+                    if (bonus.bonusType == 0) player.health += 20;
+                    else if (bonus.bonusType == 1) player.speed += 50.0f;
+                    bonus.active = false;
+                    PlaySound(bonusSound);
+                }
+            }
+        }
+
+        if (IsKeyPressed(KEY_ENTER)) currentState = GAME;
+        if (IsKeyPressed(KEY_P)) currentState = (currentState == PAUSE ? GAME : PAUSE);
+
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+        DrawTexture(background, 0, 0, WHITE);
+
+        if (currentState == MENU) {
+            DrawText("Press ENTER to start", 200, 250, 20, DARKGRAY);
+        } else if (currentState == GAME) {
+            DrawTexture(player.texture, player.position.x, player.position.y, WHITE);
+            if (monster.isAlive)
+                DrawTexture(monster.texture, monster.position.x, monster.position.y, WHITE);
+            if (bonus.active)
+                DrawTexture(bonus.texture, bonus.position.x, bonus.position.y, WHITE);
+
+            DrawText(TextFormat("Health: %d", player.health), 20, 20, 20, RED);
+        } else if (currentState == PAUSE) {
+            DrawText("PAUSE - press P to continue", 200, 250, 20, GRAY);
+        }
+
+        EndDrawing();
+    }
+
+    UnloadTexture(playerTexture);
+    UnloadTexture(monsterTexture);
+    UnloadTexture(bonusTexture);
+    UnloadTexture(background);
+    UnloadSound(attackSound);
+    UnloadSound(bonusSound);
+    UnloadMusicStream(backgroundMusic);
+    CloseAudioDevice();
+    CloseWindow();
+    return 0;
+}
